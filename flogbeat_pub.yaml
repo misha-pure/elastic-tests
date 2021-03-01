@@ -1,0 +1,76 @@
+---
+kind: ConfigMap 
+apiVersion: v1 
+metadata:
+  name: filebeat-config
+data:
+  filebeat.yml: |
+    filebeat.inputs:
+    - type: log
+      enabled: true
+      paths:
+        - /data/*.log	
+
+    setup.template.settings:
+      index.number_of_shards: 24
+      index.number_of_replicas: 0
+      index.refresh_interval: 30s
+
+    output.elasticsearch:
+      hosts: '${ELASTICSEARCH_HOST}:9200'
+      protocol: 'https'
+      username: ${ELASTICSEARCH_USER:elastic}
+      password: '${ELASTICSEARCH_PASSWORD}'
+      ssl.enabled: true
+      ssl.verification_mode: "none"
+      worker: 8
+      bulk_max_size: 8192
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: flogbeat
+spec:
+  serviceName: flogbeat
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flogbeat
+  template:
+    metadata:
+      labels:
+        app: flogbeat
+    spec:
+      containers:
+      - name: flogger
+        image: mingrammer/flog
+        imagePullPolicy: Always
+        args: ["--type", "log", "-w", "--loop", "--output", "/data/generated.log"]
+        volumeMounts:
+        - name: flogbeat-data
+          mountPath: /data
+      - name: beater
+        image: docker.elastic.co/beats/filebeat:7.11.1
+        env:
+        - name: ELASTICSEARCH_HOST
+          value: "quickstart-es-http"
+        - name: ELASTICSEARCH_USER
+          value: "elastic"
+        - name: ELASTICSEARCH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: quickstart-es-elastic-user
+              key: elastic
+        volumeMounts:
+        - name: filebeat-config-vol
+          mountPath: /usr/share/filebeat/filebeat.yml
+          subPath: filebeat.yml
+        - name: flogbeat-data
+          mountPath: /data
+      volumes:
+      - name: filebeat-config-vol
+        configMap:
+          name: filebeat-config
+      - name: flogbeat-data
+        emptyDir: {}
+        

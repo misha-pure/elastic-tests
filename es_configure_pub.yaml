@@ -1,0 +1,54 @@
+---
+apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: quickstart
+spec:
+  version: 7.11.1
+  nodeSets:
+  - name: default
+    count: 3
+    podTemplate:
+      spec:
+        initContainers:
+          - name: install-plugins
+            command:
+              - sh
+              - -c
+              - |
+                bin/elasticsearch-plugin remove repository-s3
+                bin/elasticsearch-plugin install --batch repository-s3
+          - name: add-access-keys
+            env:
+              - name: AWS_ACCESS_KEY_ID
+                valueFrom:
+                  secretKeyRef:
+                    name: my-s3-keys
+                    key: access-key
+              - name: AWS_SECRET_ACCESS_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: my-s3-keys
+                    key: secret-key
+            command:
+              - sh
+              - -c
+              - |
+                echo $AWS_ACCESS_KEY_ID | bin/elasticsearch-keystore add --stdin --force s3.client.default.access_key
+                echo $AWS_SECRET_ACCESS_KEY | bin/elasticsearch-keystore add --stdin --force s3.client.default.secret_key
+    config:
+      node.store.allow_mmap: false
+      node.master: true
+      node.data: true
+      node.ingest: true
+      thread_pool.snapshot.max: 8
+    volumeClaimTemplates:
+      - metadata:
+          name: elasticsearch-data
+        spec:
+          storageClassName: local-storage
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 100Gi
